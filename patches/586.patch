@@ -1,0 +1,457 @@
+From 18b42347c311134bf5528385b69554cdc43e88f4 Mon Sep 17 00:00:00 2001
+From: Luis Ponce <luis.f.ponce.navarro@linux.intel.com>
+Date: Tue, 4 Jun 2019 11:15:33 -0500
+Subject: [PATCH 1/6] Update hibench common
+
+Due Scala < 2.12 does not compiles on java 1.11 jdk and, scala 2.12
+requires to change org.apache.kafka from `0.8.2.1` to at least `0.10.2.2`
+This last kafka version will require to change/port the code of following classes:
+
+* KafkaCollector.scala
+* KafkaConsumer.scala
+* MetricsUtil.scala
+
+To avoid break the streaming benchmarks in scala 2.11 and 2.10 the following
+changes are implemented:
+
+* Added profile to skip compiling scala code by using `maven.assembly.plugin.goal` variable.
+* Changed the goal in `scala-compile-first` to change in function of this added profile when no need to compile Kafka scala code.
+
+Signed-off-by: Luis Ponce <luis.f.ponce.navarro@linux.intel.com>
+---
+ common/pom.xml | 18 +++++++++++++++++-
+ 1 file changed, 17 insertions(+), 1 deletion(-)
+
+diff --git a/common/pom.xml b/common/pom.xml
+index 3bb0c8f12..25f89b76f 100644
+--- a/common/pom.xml
++++ b/common/pom.xml
+@@ -60,7 +60,7 @@
+             <phase>process-resources</phase>
+             <goals>
+               <goal>add-source</goal>
+-              <goal>compile</goal>
++              <goal>${maven.assembly.plugin.goal}</goal>
+             </goals>
+           </execution>
+           <execution>
+@@ -99,6 +99,7 @@
+       <properties>
+         <scala.version>2.11.8</scala.version>
+         <scala.binary.version>2.11</scala.binary.version>
++        <maven.assembly.plugin.goal>compile</maven.assembly.plugin.goal>
+       </properties>
+       <activation>
+         <property>
+@@ -112,6 +113,7 @@
+       <properties>
+         <scala.version>2.10.4</scala.version>
+         <scala.binary.version>2.10</scala.binary.version>
++        <maven.assembly.plugin.goal>compile</maven.assembly.plugin.goal>
+       </properties>
+       <activation>
+         <property>
+@@ -126,6 +128,7 @@
+       <properties>
+         <scala.version>2.11.8</scala.version>
+         <scala.binary.version>2.11</scala.binary.version>
++        <maven.assembly.plugin.goal>compile</maven.assembly.plugin.goal>
+       </properties>
+       <activation>
+         <property>
+@@ -134,5 +137,18 @@
+         </property>
+       </activation>
+     </profile>
++
++    <profile>
++      <id>exclude-streaming</id>
++      <properties>
++        <maven.assembly.plugin.goal>doc</maven.assembly.plugin.goal>
++      </properties>
++      <activation>
++        <property>
++          <name>exclude-streaming</name>
++        </property>
++      </activation>
++    </profile>
++
+   </profiles>
+ </project>
+
+From 40dfcce1e464f0b56a0be14d6e63ecd65f00b762 Mon Sep 17 00:00:00 2001
+From: Luis Ponce <luis.f.ponce.navarro@linux.intel.com>
+Date: Tue, 4 Jun 2019 13:07:22 -0500
+Subject: [PATCH 2/6] Update Code to be prepare for hadoop version 3.2.0
+
+* Created method copyMerge in TestDFSIOEnh.java due hadoop-common-3.2.0
+jar has deprecatted it. [Removed
+FileUtil.copyMerge](https://issues.apache.org/jira/browse/HADOOP-12967).
+* Created method checkDest in TestDFSIOEnh.java because is private in
+org.apache.hadoop.fs.FileUtil and required for copyMerge.
+* LoggerFactory changed to org.slf4j due org.slf4j.Logger cannot be
+converted to org.apache.commons.logging.Log
+
+Signed-off-by: Luis Ponce <luis.f.ponce.navarro@linux.intel.com>
+---
+ .../apache/hadoop/fs/dfsioe/TestDFSIO.java    |  6 +-
+ .../apache/hadoop/fs/dfsioe/TestDFSIOEnh.java | 64 +++++++++++++++++--
+ 2 files changed, 62 insertions(+), 8 deletions(-)
+
+diff --git a/autogen/src/main/java/org/apache/hadoop/fs/dfsioe/TestDFSIO.java b/autogen/src/main/java/org/apache/hadoop/fs/dfsioe/TestDFSIO.java
+index 6b25e3e24..02b40ee1b 100644
+--- a/autogen/src/main/java/org/apache/hadoop/fs/dfsioe/TestDFSIO.java
++++ b/autogen/src/main/java/org/apache/hadoop/fs/dfsioe/TestDFSIO.java
+@@ -23,7 +23,6 @@
+ import java.util.Date;
+ import java.util.StringTokenizer;
+ 
+-import org.apache.commons.logging.*;
+ 
+ import org.apache.hadoop.fs.*;
+ import org.apache.hadoop.mapred.*;
+@@ -33,6 +32,8 @@
+ import org.apache.hadoop.conf.*;
+ import org.apache.hadoop.util.Tool;
+ import org.apache.hadoop.util.ToolRunner;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
+ 
+ /**
+  * Distributed i/o benchmark.
+@@ -69,8 +70,7 @@
+   private static final int DEFAULT_BUFFER_SIZE = 1000000;
+   private static final String BASE_FILE_NAME = "test_io_";
+   private static final String DEFAULT_RES_FILE_NAME = "TestDFSIO_results.log";
+-  
+-  private static final Log LOG = FileInputFormat.LOG;
++  private static final Logger LOG = LoggerFactory.getLogger(FileInputFormat.class);
+   private static Configuration fsConfig = new Configuration();
+   private static final long MEGA = 0x100000;
+   private static String TEST_ROOT_DIR = System.getProperty("test.build.data","/benchmarks/TestDFSIO");
+diff --git a/autogen/src/main/java/org/apache/hadoop/fs/dfsioe/TestDFSIOEnh.java b/autogen/src/main/java/org/apache/hadoop/fs/dfsioe/TestDFSIOEnh.java
+index b5a0e52c4..1f44108ab 100644
+--- a/autogen/src/main/java/org/apache/hadoop/fs/dfsioe/TestDFSIOEnh.java
++++ b/autogen/src/main/java/org/apache/hadoop/fs/dfsioe/TestDFSIOEnh.java
+@@ -22,11 +22,13 @@
+ 
+ import java.util.Date;
+ import java.util.StringTokenizer;
++import java.util.Arrays;
+ import java.util.ArrayList;
+ import java.util.Collections;
+ import java.util.Comparator;
+ 
+-import org.apache.commons.logging.*;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
+ 
+ import org.apache.hadoop.mapred.*;
+ import org.apache.hadoop.mapreduce.Job;
+@@ -85,7 +87,7 @@
+ 
+ public class TestDFSIOEnh extends Configured implements Tool {
+ 
+-  private static final Log LOG = LogFactory.getLog(TestDFSIOEnh.class);
++  private static final Logger LOG = LoggerFactory.getLogger(TestDFSIOEnh.class);
+   private static final int TEST_TYPE_READ = 0;
+   private static final int TEST_TYPE_WRITE = 1;
+   private static final int TEST_TYPE_CLEANUP = 2;
+@@ -952,7 +954,7 @@ protected static void runAnalyse(FileSystem fs, Configuration fsConfig,
+ 			 e.printStackTrace();
+ 		 } finally {
+ 			 fs.delete(DfsioeConfig.getInstance().getReportTmp(fsConfig), true);
+-			 FileUtil.copyMerge(fs, DfsioeConfig.getInstance().getReportDir(fsConfig), fs, DfsioeConfig.getInstance().getReportTmp(fsConfig), false, fsConfig, null);
++			 copyMerge(fs, DfsioeConfig.getInstance().getReportDir(fsConfig), fs, DfsioeConfig.getInstance().getReportTmp(fsConfig), false, fsConfig, null);
+ 			 LOG.info("remote report file " + DfsioeConfig.getInstance().getReportTmp(fsConfig) + " merged.");
+ 			 BufferedReader lines = new BufferedReader(new InputStreamReader(new DataInputStream(fs.open(DfsioeConfig.getInstance().getReportTmp(fsConfig)))));
+ 			 String line = null;
+@@ -1001,8 +1003,60 @@ else if (sampleUnit == GIGA)
+ 		 }
+ 		 res.println("\n-- Result Analyse -- : " + ((System.currentTimeMillis() - t1)/1000) + "s");
+ 		 res.close();
+-	 }
+-	 
++     }
++
++    /** Copy all files in a directory to one output file (merge). */
++    @Deprecated
++	public static boolean copyMerge(FileSystem srcFS, Path srcDir, FileSystem dstFS, Path dstFile, boolean deleteSource,
++			Configuration conf, String addString) throws IOException {
++        dstFile = checkDest(srcDir.getName(), dstFS, dstFile, false);
++
++        if (!srcFS.getFileStatus(srcDir).isDirectory())
++            return false;
++
++		OutputStream out = dstFS.create(dstFile);
++
++		try {
++			FileStatus contents[] = srcFS.listStatus(srcDir);
++			Arrays.sort(contents);
++			for (int i = 0; i < contents.length; i++) {
++				if (contents[i].isFile()) {
++					InputStream in = srcFS.open(contents[i].getPath());
++					try {
++						IOUtils.copyBytes(in, out, conf, false);
++						if (addString != null)
++							out.write(addString.getBytes("UTF-8"));
++
++					} finally {
++						in.close();
++					}
++				}
++			}
++		} finally {
++			out.close();
++		}
++
++		if (deleteSource) {
++			return srcFS.delete(srcDir, true);
++		} else {
++			return true;
++		}
++    }
++
++	private static Path checkDest(String srcName, FileSystem dstFS, Path dst, boolean overwrite) throws IOException {
++		if (dstFS.exists(dst)) {
++			FileStatus sdst = dstFS.getFileStatus(dst);
++			if (sdst.isDirectory()) {
++				if (null == srcName) {
++					throw new IOException("Target " + dst + " is a directory");
++				}
++				return checkDest(null, dstFS, new Path(dst, srcName), overwrite);
++			} else if (!overwrite) {
++				throw new IOException("Target " + dst + " already exists");
++			}
++		}
++		return dst;
++	}
+ 	 @Deprecated
+ 	 protected static void analyzeResult( FileSystem fs, 
+                                      int testType,
+
+From 4eb1191697f7e308ceac432d11522c81816f28dc Mon Sep 17 00:00:00 2001
+From: Luis Ponce <luis.f.ponce.navarro@linux.intel.com>
+Date: Tue, 4 Jun 2019 13:38:10 -0500
+Subject: [PATCH 3/6] Update sparkbench
+
+* sparkbench/assembly/pom.xml:
+	* Changed property name activation on `allModules` profile.
+	* Added new profile that excludes `sparkbench-streaming` artifact.
+
+* sparkbench/pom.xml:
+	* Changed property name activation on `allModules` profile.
+        * Added new profile that excludes `streaming` module.
+	* Added profile spark2.4 due spark-core_2.12 supports > 2.4.0 version.
+	* Added profile scala 2.12. Scala < 2.12 does not compiles on java 1.11 jdk.
+	* Added profile hadoop3.2 to propagate this variable to all spark benchmark.
+
+* sparkbecnh/streaming/pom.xml:
+        * Added profile spark2.4 on sparkbench-streaming POM with spark-streaming-kafka-0-8_2.11 version 2.4.0.
+
+Signed-off-by: Luis Ponce <luis.f.ponce.navarro@linux.intel.com>
+---
+ sparkbench/assembly/pom.xml  | 38 ++++++++++++++++++++++-
+ sparkbench/pom.xml           | 58 +++++++++++++++++++++++++++++++++++-
+ sparkbench/streaming/pom.xml | 17 +++++++++++
+ 3 files changed, 111 insertions(+), 2 deletions(-)
+
+diff --git a/sparkbench/assembly/pom.xml b/sparkbench/assembly/pom.xml
+index 785b432b1..bff5072af 100644
+--- a/sparkbench/assembly/pom.xml
++++ b/sparkbench/assembly/pom.xml
+@@ -159,7 +159,43 @@
+       </dependencies>
+       <activation>
+         <property>
+-          <name>!modules</name>
++          <name>!exclude-streaming</name>
++        </property>
++      </activation>
++    </profile>
++
++    <profile>
++      <id>exclude-streaming</id>
++      <dependencies>
++        <dependency>
++          <groupId>com.intel.hibench.sparkbench</groupId>
++          <artifactId>sparkbench-micro</artifactId>
++          <version>${project.version}</version>
++        </dependency>
++        <dependency>
++          <groupId>com.intel.hibench.sparkbench</groupId>
++          <artifactId>sparkbench-ml</artifactId>
++          <version>${project.version}</version>
++        </dependency>
++        <dependency>
++          <groupId>com.intel.hibench.sparkbench</groupId>
++          <artifactId>sparkbench-websearch</artifactId>
++          <version>${project.version}</version>
++        </dependency>
++        <dependency>
++          <groupId>com.intel.hibench.sparkbench</groupId>
++          <artifactId>sparkbench-graph</artifactId>
++          <version>${project.version}</version>
++        </dependency>
++        <dependency>
++          <groupId>com.intel.hibench.sparkbench</groupId>
++          <artifactId>sparkbench-sql</artifactId>
++          <version>${project.version}</version>
++        </dependency>
++      </dependencies>
++      <activation>
++        <property>
++          <name>exclude-streaming</name>
+         </property>
+       </activation>
+     </profile>
+diff --git a/sparkbench/pom.xml b/sparkbench/pom.xml
+index 41c230b37..6f5154281 100644
+--- a/sparkbench/pom.xml
++++ b/sparkbench/pom.xml
+@@ -117,7 +117,23 @@
+       </modules>
+       <activation>
+         <property>
+-          <name>!modules</name>
++          <name>!exclude-streaming</name>
++        </property>
++      </activation>
++    </profile>
++
++    <profile>
++      <id>no-streaming</id>
++      <modules>
++        <module>micro</module>
++        <module>ml</module>
++        <module>websearch</module>
++        <module>graph</module>
++        <module>sql</module>
++      </modules>
++      <activation>
++        <property>
++          <name>exclude-streaming</name>
+         </property>
+       </activation>
+     </profile>
+@@ -191,6 +207,20 @@
+       </activation>
+     </profile>
+ 
++    <profile>
++      <id>spark2.4</id>
++      <properties>
++        <spark.version>2.4.3</spark.version>
++        <spark.bin.version>2.4</spark.bin.version>
++      </properties>
++      <activation>
++        <property>
++          <name>spark</name>
++          <value>2.4</value>
++        </property>
++      </activation>
++    </profile>
++
+     <profile>
+       <id>defaultScalaVersion</id>
+       <properties>
+@@ -232,5 +262,31 @@
+       </activation>
+     </profile>
+ 
++    <profile>
++      <id>scala2.12</id>
++      <properties>
++        <scala.version>2.12.9</scala.version>
++        <scala.binary.version>2.12</scala.binary.version>
++      </properties>
++      <activation>
++        <property>
++          <name>scala</name>
++          <value>2.12</value>
++        </property>
++      </activation>
++    </profile>
++
++    <profile>
++      <id>hadoop3.2</id>
++      <properties>
++        <hadoop.mr2.version>3.2.0</hadoop.mr2.version>
++      </properties>
++      <activation>
++        <property>
++          <name>hadoop</name>
++          <value>3.2</value>
++        </property>
++      </activation>
++    </profile>
+   </profiles>
+ </project>
+diff --git a/sparkbench/streaming/pom.xml b/sparkbench/streaming/pom.xml
+index 513b9bad8..88a5d2e12 100644
+--- a/sparkbench/streaming/pom.xml
++++ b/sparkbench/streaming/pom.xml
+@@ -119,5 +119,22 @@
+       </activation>
+     </profile>
+ 
++    <profile>
++      <id>spark2.4</id>
++      <dependencies>
++        <dependency>
++          <groupId>org.apache.spark</groupId>
++          <artifactId>spark-streaming-kafka-0-8_2.11</artifactId>
++          <version>2.4.0</version>
++        </dependency>
++      </dependencies>
++      <activation>
++        <property>
++          <name>spark</name>
++          <value>2.4</value>
++        </property>
++      </activation>
++    </profile>
++
+   </profiles>
+ </project>
+
+From 27085de79289ed39f55b2210bdb42479ed955626 Mon Sep 17 00:00:00 2001
+From: Luis Ponce <luis.f.ponce.navarro@linux.intel.com>
+Date: Wed, 5 Jun 2019 10:21:34 -0500
+Subject: [PATCH 5/6] Update autogen
+
+* autogen/pom.xml
+	* Add hadoop mr2 profile to be used for hadoop hdfs and client.
+
+Signed-off-by: Luis Ponce <luis.f.ponce.navarro@linux.intel.com>
+---
+ autogen/pom.xml | 15 ++++++++++++++-
+ 1 file changed, 14 insertions(+), 1 deletion(-)
+
+diff --git a/autogen/pom.xml b/autogen/pom.xml
+index fb1d9b46a..701aad835 100644
+--- a/autogen/pom.xml
++++ b/autogen/pom.xml
+@@ -57,7 +57,20 @@
+       <version>${hadoop.mr2.version}</version>
+     </dependency>
+   </dependencies>
+-
++  <profiles>
++    <profile>
++      <id>hadoop3.2</id>
++      <properties>
++        <hadoop.mr2.version>3.2.0</hadoop.mr2.version>
++      </properties>
++      <activation>
++        <property>
++          <name>hadoop</name>
++          <value>3.2</value>
++        </property>
++      </activation>
++    </profile>
++  </profiles>
+   <build>
+     <plugins>
+       <plugin>
+
